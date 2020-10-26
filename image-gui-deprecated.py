@@ -2,7 +2,7 @@ import numpy as np
 from PIL import Image, ImageTk
 import tkinter as tk
 import logging
-import techniques
+import filters
 import inspect
 
 logging.basicConfig()
@@ -76,8 +76,8 @@ button.pack(side=tk.BOTTOM)
 
 # Create option menu and create variable to store selected option from options
 selectedDrop = tk.StringVar(master)
-selectedDrop.set(inspect.getmembers(techniques, inspect.isfunction)[0])
-option = tk.OptionMenu(frame0, selectedDrop, list(inspect.getmembers(techniques, inspect.isfunction)))
+selectedDrop.set(inspect.getmembers(filters, inspect.isfunction)[0])
+option = tk.OptionMenu(frame0, selectedDrop, list(inspect.getmembers(filters, inspect.isfunction)))
 option.pack(side=tk.TOP)
 
 # Create TK image objects from the pixel arrays as GUI attributes, ready to be displayed in the GUI
