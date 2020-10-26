@@ -28,12 +28,10 @@ def getImageAsArray(path, convertToGrey=True):
         # Use Pillow to load image data
         imgData = Image.open(path)
     except FileNotFoundError:
-        raise Exception("No file found at that file path. Check it's there and try again. "
-                        "If error persists, check for special characters in file path.")
+        raise Exception("No file found at that file path. Check it's there and try again. If error persists, check for special characters in file path.")
 
     if convertToGrey:
-        # TODO: Convert to grey scale image
-        raise NotImplementedError
+        imgData.convert("L")
     else:
         pass
 
