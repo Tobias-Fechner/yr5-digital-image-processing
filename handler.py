@@ -81,12 +81,12 @@ def saveAll(img, filtr, saveFilter=True):
 
     # Save filtered image from pillow image object
     img_PIL.save(root+'filtered_image.png', 'PNG')
-    print("Saved filtered image to... \n{}".format(root+'filtered_image.png'))
+    print("Saved filtered image to... \n{}\n\n".format(root+'filtered_image.png'))
 
     # TODO: Make saved image of plot larger. Currently will be tiny if mask size is eg 9x9.
     # Save figure of kernel plot to image
     plt.imsave(root+'kernel_plot.png', filtr.kernel)
-    print("Saved filtered image to... \n{}".format(root+'kernel.png'))
+    print("Saved filtered image to... \n{}\n\n".format(root+'kernel.png'))
 
     if saveFilter:
         # Save filter attributes (including kernel as array.tolist()) to text file for traceability
@@ -97,6 +97,6 @@ def saveAll(img, filtr, saveFilter=True):
                 else:
                     pass
                 f.write(''.join("filter.{} = {}\n".format(k, v)))
-        print("Saved filter object attributes to... \n{}".format(root + 'filter.txt'))
+        print("Saved filter object attributes to... \n{}\n\n".format(root + 'filter.txt'))
     else:
         pass

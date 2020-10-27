@@ -82,9 +82,11 @@ class Filter(ABC):
 
 class Median(Filter):
     def __init__(self, maskSize):
+
         kernel = np.zeros((maskSize,maskSize))
         middle = int((maskSize-1)/2)
         kernel[middle, middle] = 1
+
         super().__init__(maskSize, kernel, name='median', linearity='non-linear')
 
     def computePixel(self, sub):
@@ -129,3 +131,21 @@ class Gaussian(Filter):
         :return: product of sub matrix with kernel normalised by sum of kernel weights
         """
         return (self.kernel * sub).sum()/ self.kernel.sum()
+
+class HighPass(Filter):
+    def __init__(self, maskSize):
+
+        # TODO: Make ratio of intensity reduction vs. increase configurable
+        kernel = np.full((maskSize, maskSize), -1/(maskSize**2))
+        middle = int((maskSize-1)/2)
+        kernel[middle, middle] = 1 - 1/(maskSize**2)
+
+        super().__init__(maskSize, kernel, name='high-pass', linearity='linear')
+
+    def computePixel(self, sub):
+        try:
+            assert -0.01 < self.kernel.sum() < 0.01
+        except AssertionError:
+            raise Exception("Sum of high pass filter weights should be effectively zero.")
+
+        return (self.kernel * sub).sum()
