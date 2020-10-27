@@ -4,9 +4,11 @@ Module to define filters and their computation algorithms. Used by handler.py.
 Digital Image Processing 2020, Assignment 1/1, 20%
 """
 
-from abc import ABC
+from abc import ABC, abstractmethod
 import numpy as np
 import matplotlib.pyplot as plt
+from math import ceil
+import statistics
 
 class Filter(ABC):
     def __init__(self, maskSize, kernel, name, linearity):
@@ -34,49 +36,80 @@ class Filter(ABC):
 
     @staticmethod
     def assertTypes(maskSize, kernel):
-        assert isinstance(maskSize, int)
-        assert isinstance(kernel, np.ndarray)
+        assert isinstance(maskSize, int)        # Mask size must be integer
+        assert maskSize % 2 == 1                # Mask size must be odd
+        assert isinstance(kernel, np.ndarray)   # kernel should be n-dimensional numpy array
 
-    def convolve2D(self, img):
-        # TODO: Generalise convolution for mask size
+    @abstractmethod
+    def computePixel(self, sub):
+        pass
+
+    def convolve2D(self, img, padding=True):
         """
         This function which takes an image and a kernel and returns the convolution of them.
-        :param img: a numpy array of size [image_height, image_width].
-        :return: a numpy array of size [image_height, image_width] (convolution output).
+        :param padding: bool defines if padding is used
+        :param img: numpy array of image to be filtered
+        :return: numpy array of filtered image (image convoluted with kernel)
         """
-        # Flip the kernel
+        if padding:
+            # Create padding for edges
+            pad = int((self.maskSize - 1) / 2)
+            print("Padding of {} pixels created.".format(pad))
+        else:
+            pad = 0
+            print("No padding added.")
+
+        # Flip the kernel up/down and left/right
         self.kernel = np.flipud(np.fliplr(self.kernel))
+
         # Create output array of zeros with same shape and type as img array
         output = np.zeros_like(img)
 
-        # Add zero padding to the input image
-        imgPadded = np.zeros((img.shape[0] + 2, img.shape[1] + 2))
-        # TODO: check if this should be [1:-2, 1:-2]
-        imgPadded[1:-1, 1:-1] = img
+        # Add padding of zeros to the input image
+        imgPadded = np.zeros((img.shape[0] + 2*pad, img.shape[1] + 2*pad))
 
-        # Loop over every pixel of the image
-        for x in range(img.shape[1]):
-            for y in range(img.shape[0]):
-                # element-wise multiplication of the kernel and the image
-                # TODO: check why y+3, x+3
-                output[y, x] = (self.kernel * imgPadded[y: y+3, x: x+3]).sum()
+        # Insert image pixel values into padded array
+        imgPadded[pad:-pad, pad:-pad] = img
+
+        # Loop over every pixel of padded image
+        for col in range(img.shape[1]):
+            for row in range(img.shape[0]):
+                # Create sub matrix of mask size surrounding pixel under consideration
+                sub = imgPadded[row: row+self.maskSize, col: col+self.maskSize]
+                output[row, col] = self.computePixel(sub)
 
         return output
 
 class Median(Filter):
     def __init__(self, maskSize):
-        kernel = None
-        super().__init__(maskSize, kernel, name='median', linearity='non-linear')
+        super().__init__(maskSize, kernel=None, name='median', linearity='non-linear')
+
+    def computePixel(self, sub):
+        return statistics.median(sub.flatten())
 
 class Mean(Filter):
     def __init__(self, maskSize):
-        kernel = np.ones((3,3))/9.0
-
+        kernel = np.ones((maskSize,maskSize))/(maskSize**2)
         super().__init__(maskSize, kernel, name='mean', linearity='linear')
+
+    def computePixel(self, sub):
+        try:
+            assert self.kernel.sum() == 1
+        except AssertionError:
+            raise Exception("Sum of kernel weights for mean filter should equal 1. They equal {}!".format(self.kernel.sum()))
+        # element-wise multiplication of the kernel and image pixel under consideration
+        return (self.kernel * sub).sum()
 
 class Gaussian(Filter):
     def __init__(self, sig):
-        maskSize = (6 * sig) + 1
+        # Calculate mask size from sigma value. Ensures filter approaches zero at edges (always round up)
+        maskSize = ceil((6 * sig) + 1)
+
+        # TODO: implement mask size override? or scaling down of kernel values
+        if maskSize % 2 == 0:
+            maskSize += 1
+        else:
+            pass
 
         ax = np.linspace(-(maskSize - 1) / 2., (maskSize - 1) / 2., maskSize)
         xx, yy = np.meshgrid(ax, ax)
@@ -84,3 +117,12 @@ class Gaussian(Filter):
         kernel = np.exp(-0.5 * (np.square(xx) + np.square(yy)) / np.square(sig))
 
         super().__init__(maskSize, kernel, name='gaussian', linearity='non-linear')
+
+    def computePixel(self, sub):
+        """
+        Element-wise multiplication of the kernel and image pixel under consideration,
+        accounting for normalisation to mitigate DC distortion effects.
+        :param sub: sub matrix of image pixel under consideration and surrounding pixels within mask size.
+        :return: product of sub matrix with kernel normalised by sum of kernel weights
+        """
+        return (self.kernel * sub).sum()/ self.kernel.sum()

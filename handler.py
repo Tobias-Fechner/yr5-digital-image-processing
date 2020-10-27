@@ -78,11 +78,22 @@ def saveAll(img, filtr):
 
     # Create pillow image object from filtered image array
     img_PIL = Image.fromarray(img, 'L')
+
     # Save filtered image from pillow image object
     img_PIL.save(root+'filtered_image.png', 'PNG')
-
-    # Save figure of kernel plot to image
-    plt.imsave(root+'kernel.png', filtr.kernel)
-
     print("Saved filtered image to {}".format(root+'filtered_image.png'))
+
+    # TODO: Make saved image of plot larger. Currently will be tiny if mask size is eg 9x9.
+    # Save figure of kernel plot to image
+    plt.imsave(root+'kernel_plot.png', filtr.kernel)
     print("Saved filtered image to {}".format(root+'kernel.png'))
+
+    # Save filter attributes (including kernel as array.tolist()) to text file for traceability
+    with open(root+'filter.txt', 'w') as f:
+        for k, v in filtr.__dict__.items():
+            if isinstance(v, np.ndarray):
+                v = v.tolist()
+            else:
+                pass
+            f.write(''.join("filter.{} = {}\n".format(k, v)))
+    print("Saved filter object attributes to {}".format(root + 'filter.txt'))
