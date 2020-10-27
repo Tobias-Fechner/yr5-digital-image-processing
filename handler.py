@@ -9,6 +9,10 @@ import numpy as np
 from PIL import Image
 import logging
 from IPython.display import display
+import filters
+import matplotlib.pyplot as plt
+from pathlib import Path
+import os.path
 
 logging.basicConfig()
 
@@ -38,19 +42,13 @@ def getImageAsArray(path, convertToGrey=True):
     # Convert to 2D numpy array and return
     return np.asarray(imgData), imgData
 
-def applyFilter(image, filtr):
-    # TODO: Check filter present in filters.py module
-    # TODO: Check parameters are correct
-    # TODO: Convolve filter with image
-    # TODO: Return filtered image.
-    raise NotImplementedError
-
 def plotFigs(images):
     """
     Simple function to display image(s) in notebook. Intended for use to see original vs filtered images.
 
     :return: None
     """
+    # Check types and correct common error if necessary
     try:
         assert isinstance(images, list)
     except AssertionError:
@@ -61,5 +59,30 @@ def plotFigs(images):
             raise Exception("Make sure you pass in either a single image as np ndarray or list of images as np ndarray.")
 
     for img in images:
+        # Convert array to geyscale pillow image object
         img_PIL = Image.fromarray(img, 'L')
         display(img_PIL)
+
+def saveAll(img, filtr):
+    """
+    Function to save all figures relevant to report. Currently filtered image and plot of kernel.
+    :return:
+    """
+    assert isinstance(filtr, filters.Filter)
+
+    currentDir = Path().absolute()
+    root = str(currentDir) + '\\..\outputs\{}\maskSize_{}\\'.format(filtr.name, filtr.maskSize)
+
+    if not os.path.exists(root):
+        os.makedirs(root)
+
+    # Create pillow image object from filtered image array
+    img_PIL = Image.fromarray(img, 'L')
+    # Save filtered image from pillow image object
+    img_PIL.save(root+'filtered_image.png', 'PNG')
+
+    # Save figure of kernel plot to image
+    plt.imsave(root+'kernel.png', filtr.kernel)
+
+    print("Saved filtered image to {}".format(root+'filtered_image.png'))
+    print("Saved filtered image to {}".format(root+'kernel.png'))

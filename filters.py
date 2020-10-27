@@ -6,6 +6,7 @@ Digital Image Processing 2020, Assignment 1/1, 20%
 
 from abc import ABC
 import numpy as np
+import matplotlib.pyplot as plt
 
 class Filter(ABC):
     def __init__(self, maskSize, kernel, name, linearity):
@@ -21,11 +22,14 @@ class Filter(ABC):
         filter is an instance of class Filter.
         :return: string describing filter instance.
         """
-        descriptor = "Filter name: {},\nLinearity: {},\nMask size: {}\n".format(
+        descriptor = "Filter name: {},\nLinearity: {},\nMask size: {}\nKernel shown below where possible:".format(
             self.name,
             self.linearity,
             self.maskSize
         )
+
+        plt.imshow(self.kernel, interpolation='none')
+
         return descriptor
 
     @staticmethod
@@ -34,6 +38,7 @@ class Filter(ABC):
         assert isinstance(kernel, np.ndarray)
 
     def convolve2D(self, img):
+        # TODO: Generalise convolution for mask size
         """
         This function which takes an image and a kernel and returns the convolution of them.
         :param img: a numpy array of size [image_height, image_width].
@@ -66,5 +71,16 @@ class Median(Filter):
 class Mean(Filter):
     def __init__(self, maskSize):
         kernel = np.ones((3,3))/9.0
-        # TODO: Pass this into convolve function.
+
         super().__init__(maskSize, kernel, name='mean', linearity='linear')
+
+class Gaussian(Filter):
+    def __init__(self, sig):
+        maskSize = (6 * sig) + 1
+
+        ax = np.linspace(-(maskSize - 1) / 2., (maskSize - 1) / 2., maskSize)
+        xx, yy = np.meshgrid(ax, ax)
+
+        kernel = np.exp(-0.5 * (np.square(xx) + np.square(yy)) / np.square(sig))
+
+        super().__init__(maskSize, kernel, name='gaussian', linearity='non-linear')
