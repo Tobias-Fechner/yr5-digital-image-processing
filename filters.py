@@ -44,7 +44,7 @@ class Filter(ABC):
     def computePixel(self, sub):
         pass
 
-    def convolve2D(self, img, padding=True):
+    def convolve(self, img, padding=True):
         """
         This function which takes an image and a kernel and returns the convolution of them.
         :param padding: bool defines if padding is used
@@ -93,6 +93,9 @@ class Median(Filter):
         return statistics.median(sub.flatten())
 
 class Mean(Filter):
+    """
+    Effectively a low pass filter. Alternative kernel implemented in class LowPass(Filter).
+    """
     def __init__(self, maskSize):
         kernel = np.ones((maskSize,maskSize))/(maskSize**2)
         super().__init__(maskSize, kernel, name='mean', linearity='linear')
@@ -135,12 +138,12 @@ class Gaussian(Filter):
 class HighPass(Filter):
     def __init__(self, maskSize):
 
-        # TODO: Make ratio of intensity reduction vs. increase configurable
+        # TODO: Make ratio of intensity reduction vs. increase configurable for both high and low pass
         kernel = np.full((maskSize, maskSize), -1/(maskSize**2))
         middle = int((maskSize-1)/2)
         kernel[middle, middle] = 1 - 1/(maskSize**2)
-
-        super().__init__(maskSize, kernel, name='high-pass', linearity='linear')
+        #TODO: Check for high and low pass filter if they are non-linear or linear
+        super().__init__(maskSize, kernel, name='high-pass', linearity='non-linear')
 
     def computePixel(self, sub):
         try:
@@ -149,3 +152,17 @@ class HighPass(Filter):
             raise Exception("Sum of high pass filter weights should be effectively zero.")
 
         return (self.kernel * sub).sum()
+
+class LowPass(Filter):
+    def __init__(self, maskSize):
+
+        kernel = np.zeros((maskSize, maskSize))
+        middle = int((maskSize-1)/2)
+        kernel[middle, :] = 1/8
+        kernel[:, middle] = 1/8
+        kernel[middle, middle] = 1/2
+
+        super().__init__(maskSize, kernel, name='low-pass', linearity='non-linear')
+
+    def computePixel(self, sub):
+        return (self.kernel * sub).sum()/ self.kernel.sum()
