@@ -82,7 +82,10 @@ class Filter(ABC):
 
 class Median(Filter):
     def __init__(self, maskSize):
-        super().__init__(maskSize, kernel=None, name='median', linearity='non-linear')
+        kernel = np.zeros((maskSize,maskSize))
+        middle = int((maskSize-1)/2)
+        kernel[middle, middle] = 1
+        super().__init__(maskSize, kernel, name='median', linearity='non-linear')
 
     def computePixel(self, sub):
         return statistics.median(sub.flatten())
