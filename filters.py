@@ -12,6 +12,38 @@ import statistics
 from scipy import fftpack
 from matplotlib.colors import LogNorm
 
+
+def padImage(img, padRow, padCol):
+    # TODO: add pad size calculation to be within this function, then include padImage within if padding statements
+    """
+    Function pads image in two dimensions. Pad size is dependant on mask shape and therefore both pads are
+    currently always equal since we only use square mask sizes. Added pixels have intensity zero, 0.
+    :param img: img to be padded
+    :param padRow: number of pixels to be added on each side of the image (horizontal axis)
+    :param padCol: number of pixels to be added on the top and bottom of image (vertical axis)
+    :return:
+    """
+    assert isinstance(padCol, int) and isinstance(padRow, int)
+
+    # Add padding of zeros to the input image
+    imgPadded = np.zeros((img.shape[0] + 2 * padRow, img.shape[1] + 2 * padCol))
+
+    # Insert image pixel values into padded array
+    imgPadded[padRow:-padRow, padCol:-padCol] = img
+
+    return imgPadded
+
+def scale(x, ceiling=255):
+    """
+    Function scales array between 0 and maximo
+    :param x: array of values to be scaled
+    :param ceiling: max values/ top of scale
+    :return: scaled array
+    """
+    assert isinstance(x, np.ndarray)
+    assert x.max() != x.min() # otherwise divide by zero error
+    return ceiling * (x - x.min()) / (x.max() - x.min())
+
 class SpatialFilter(ABC):
     # TODO: implement standard mask shapes of square or cross and implement kernel creation based on this for each filter
     def __init__(self, maskSize, kernel, name, linearity):
@@ -56,7 +88,7 @@ class SpatialFilter(ABC):
         """
         if padding:
             # Create padding for edges
-            pad = int((self.maskSize - 1) / 2)
+            pad = ceil((self.maskSize - 1) / 2)
             print("Padding of {} pixels created.".format(pad))
         else:
             pad = 0
@@ -68,11 +100,7 @@ class SpatialFilter(ABC):
         # Create output array of zeros with same shape and type as img array
         output = np.zeros_like(img)
 
-        # Add padding of zeros to the input image
-        imgPadded = np.zeros((img.shape[0] + 2*pad, img.shape[1] + 2*pad))
-
-        # Insert image pixel values into padded array
-        imgPadded[pad:-pad, pad:-pad] = img
+        imgPadded = padImage(img, pad, pad)
 
         # Loop over every pixel of padded image
         for col in range(img.shape[1]):
@@ -129,7 +157,6 @@ class FourierFilter:
             return np.concatenate([X_even + factor[:N / 2] * X_odd,
                                    X_even + factor[N / 2:] * X_odd ])
 
-
     def fft2D(self, x):
         """
         Function recursively implements 1D Cooley-Turkey fast fourier transform
@@ -157,6 +184,120 @@ class FourierFilter:
         plt.colorbar()
         plt.title('Fourier Spectrum')
 
+class HistogramFilter(ABC):
+    def __init__(self, maskSize, name):
+        self.maskSize = maskSize
+        self.name = name
+
+    def getHistogramWithCS(self, img):
+        """
+        Function takes in image as array of pixel intensities and generates a histogram and scaled cumulative sum
+        :param img: numpy array of pixel intensities
+        :return: histogram array and scaled cumulative sum of histogram
+        """
+        try:
+            assert img.dtype == 'uint8'
+        except AssertionError:
+            img = img.astype('uint8')
+            pass
+        finally:
+            assert img.dtype == 'uint8'
+
+        # Create zeros array with as many items as bins to collect for
+        histogram = np.zeros(256)
+
+        # Loop through image and add pixel intensities to histogram
+        for pixel in img.flatten():
+            histogram[pixel] += 1
+
+        csScaled = self.getCSScaled(histogram)
+
+        return histogram, csScaled
+
+    def filter(self, img, plotHistograms=True):
+        imgFiltered, histogram, cs = self.compute(img)
+
+        if plotHistograms:
+            histogramNew, csNew = self.getHistogramWithCS(imgFiltered)
+            self.plotHistograms(histogram, histogramNew, cs, csNew)
+        else:
+            pass
+
+        return imgFiltered, histogram, cs, histogramNew, csNew # TODO: Delete last 4 returns after dubegging complete
+
+    @staticmethod
+    def getCSScaled(histogram):
+        """
+        Function returns cumulative sum of histogram scaled to range 0-255
+        :param histogram: histogram of an image as array of len 256
+        :return: scaled cumulative sum of histogram, of type int, scaled to 0-255
+        """
+        # Generate cumulative sum of histogram
+        cs = np.cumsum(histogram.flatten())
+
+        # Scale cumulative sum to be within range 0-255
+        csScaled = scale(cs)
+
+        # Return as type integer
+        return csScaled.astype('uint8')
+
+    @staticmethod
+    def plotHistograms(histogram, histogramNew, cs, csNew):
+        """
+        Function plots overlaying histograms with cumulative sum to show change between original and filtered histogram.
+        If no filtered histogram present, second series will be skipped.
+        :param csNew:
+        :param cs: cumulative sum of histogram
+        :param histogramNew: histogram after filtering technique
+        :param histogram: histogram of original image
+        :return: None
+        """
+        # Set up figure
+        fig = plt.figure()
+        fig.set_figheight(5)
+        fig.set_figwidth(15)
+
+        # Scale histograms so they overlay with scaled cumulative sums nicely and plot as bars with cs as lines
+        plt.fill_between(np.arange(np.size(histogram)), scale(histogram), label='original_hist', alpha=0.4)
+        plt.plot(cs, label='original_cs')
+        try:
+            plt.fill_between(np.arange(np.size(histogramNew)), scale(histogramNew), label='filtered_hist', alpha=0.4)
+            plt.plot(csNew, label='filtered_cs')
+        except ValueError:
+            print("Only one histogram to plot.")
+            pass
+
+        plt.legend()
+        plt.show()
+
+    @staticmethod
+    def interpolate(subBin, LU, RU, LB, RB, subX, subY):
+        """
+
+        :param subBin:
+        :param LU:
+        :param RU:
+        :param LB:
+        :param RB:
+        :param subX:
+        :param subY:
+        :return:
+        """
+        subImage = np.zeros(subBin.shape)
+        num = subX * subY
+        for i in range(subX):
+            inverseI = subX - i
+            for j in range(subY):
+                inverseJ = subY - j
+                val = subBin[i, j].astype(int)
+                subImage[i, j] = np.floor(
+                    (inverseI * (inverseJ * LU[val] + j * RU[val]) + i * (inverseJ * LB[val] + j * RB[val])) / float(
+                        num))
+        return subImage
+
+    @abstractmethod
+    def compute(self, img):
+        pass
 
 class Median(SpatialFilter):
     def __init__(self, maskSize):
@@ -248,7 +389,7 @@ class LowPass(SpatialFilter):
     def computePixel(self, sub):
         return (self.kernel * sub).sum()/ self.kernel.sum()
 
-class FFT_TruncateCoefficients(FourierFilter):
+class TruncateCoefficients(FourierFilter):
     def __init__(self, keep=0.1):
         self.keep = keep
 
@@ -270,35 +411,235 @@ class FFT_TruncateCoefficients(FourierFilter):
 
         return self.inverseFFT_scipy(imgFFT2)
 
-class HistogramFilter:
-    @staticmethod
-    def getHistogram(img):
-        # Create zeros array with as many items as bins to collect for
-        histogram = np.zeros(256)
+class Equalise(HistogramFilter):
+    def __init__(self):
+        super().__init__(None, name='histogram-equalise')
 
-        # Loop through image and add pixel intensities to histogram
-        for pixel in img.flatten():
-            histogram[pixel] += 1
+    def compute(self, img):
+        histogram, cs = self.getHistogramWithCS(img)
 
-        cumSum = HistogramFilter.cumSum(histogram)
-        cumSumNormalised = HistogramFilter.cumSumNormalise(cumSum)
-
-        return histogram, cumSumNormalised
-
-    @staticmethod
-    def cumSum(histogram):
-        return np.cumsum(histogram.flatten())
-
-    @staticmethod
-    def cumSumNormalise(cumSum):
-        # normalize the cumsum to range 0-255
-        csNormalised = 255 * (cumSum - cumSum.min()) / (cumSum.max() - cumSum.min())
-
-        # cast it to uint8
-        return csNormalised.astype('uint8')
-
-    @staticmethod
-    def histEqualise(img, cs):
         imgNew = cs[img.flatten()]
 
-        return np.reshape(imgNew, img.shape)
+        return np.reshape(imgNew, img.shape), histogram, cs
+
+class AdaptiveEqualise(HistogramFilter):
+    def __init__(self, maskSize=32):
+        super().__init__(maskSize, name='adaptive-histogram-equalise')
+
+    def compute(self, img, padding=True):
+        """
+        Function adds padding to image, then scans window over each pixel, calculating the histogram, finding the
+        cumulative sum and using that to equalise the window around the pixel under consideration. The equalised pixel
+        intensity is used in the filtered image output, for each pixel.
+        :param img: numpy array of pixel intensities for original image
+        :param padding: boolean specifying if padding is added to image (default:True)
+        :return: returns filtered image with adaptive histogram equalised pixel intensities
+        """
+        # Get histogram and cumulative sum of filtered image
+        histogramOriginal, csOriginal = self.getHistogramWithCS(img)
+
+        if padding:
+            # Create padding for edges
+            pad = ceil((self.maskSize - 1) / 2)
+            print("Padding of {} pixels created.".format(pad))
+        else:
+            pad = 0
+            print("No padding added.")
+
+        # Create output array of zeros with same shape and type as img array
+        imgFiltered = np.zeros_like(img)
+
+        imgPadded = padImage(img, pad, pad)
+
+        # Loop over every pixel of padded image
+        for col in range(img.shape[1]):
+            for row in range(img.shape[0]):
+                # Create sub matrix of mask size surrounding pixel under consideration
+                sub = imgPadded[row: row+self.maskSize, col: col+self.maskSize]
+
+                # Generate histogram and cumulative sum of image sub array
+                _, cs = self.getHistogramWithCS(sub)
+
+                # Use histogram and cumulative sum to equalise the pixel intensities
+                subNew = np.reshape(cs[img.flatten()], img.shape)
+
+                # Update pixel under consideration with equalised pixel intensity
+                middle = int((self.maskSize - 1) / 2)
+                imgFiltered[row, col] = subNew[middle, middle]
+
+        # Returns histogram and cumulative sum of original image for debugging purposes and to comply with
+        # return pattern of filter function in parent class
+        return imgFiltered, histogramOriginal, csOriginal
+
+class CLAHE(HistogramFilter):
+    def __init__(self, maskSize):
+        super().__init__(maskSize, name='contrast-limited-adaptive-histogram-equalise')
+
+    def compute(self, img):
+        raise NotImplementedError
+
+    @staticmethod
+    def clahe(img, clipLimit, bins=128, maskSize=32):
+        """
+        Function performs clipped adaptive histogram equalisation on input image
+        :param maskSize: size of kernel to scan over image
+        :param img: input image as array
+        :param clipLimit: normalised clip limit
+        :param bins: number of gray level bins for histogram
+        :return: return calhe image
+        """
+        if clipLimit == 1: return
+
+        # Get number of rows and columns of img array
+        row, col = img.shape
+        # Allow min 128 bins
+        bins = max(bins, 128)
+
+        # Pad image to allow for integer number of kernels to fit in rows and columns
+        subRows = ceil(row / maskSize)
+        subCols = ceil(col / maskSize)
+
+        # Get size of padding
+        padX = int(maskSize * (subRows - row / maskSize))
+        padY = int(maskSize * (subCols - col / maskSize))
+
+        if padX != 0 or padY != 0:
+            imgPadded = padImage(img, padX, padY)
+        else:
+            imgPadded = img
+            print("No padding needed as the mask size of {} creates {} mini rows from the original image with {} rows."
+                  "Likewise, {} mini columns from the original image with {} columns.".format(maskSize,subRows,row,subCols,col))
+
+        noPixels = maskSize**2
+        # xsz2 = round(kernelX / 2)
+        # ysz2 = round(kernelY / 2)
+        claheImage = np.zeros(imgPadded.shape)
+
+        if clipLimit > 0:
+            # Allow minimum clip limit of 1
+            clipLimit = max(1, clipLimit * maskSize**2 / bins)
+        else:
+            # Convert any negative clip limit to 50
+            clipLimit = 50
+
+        # makeLUT
+        print("...Make the LUT...")
+        minVal = 0  # np.min(img)
+        maxVal = 255  # np.max(img)
+
+        # maxVal1 = maxVal + np.maximum(np.array([0]),minVal) - minVal
+        # minVal1 = np.maximum(np.array([0]),minVal)
+
+        binSz = np.floor(1 + (maxVal - minVal) / float(bins))
+        LUT = np.floor((np.arange(minVal, maxVal + 1) - minVal) / float(binSz))
+
+        # BACK TO CLAHE
+        bins = LUT[img]
+        print(bins.shape)
+        # makeHistogram
+        print("...Making the Histogram...")
+        hist = np.zeros((subRows, subCols, bins))
+        print(subRows, subCols, hist.shape)
+        for i in range(subRows):
+            for j in range(subCols):
+                bin_ = bins[i * maskSize:(i + 1) * maskSize, j * maskSize:(j + 1) * maskSize].astype(int)
+                for i1 in range(maskSize):
+                    for j1 in range(maskSize):
+                        hist[i, j, bin_[i1, j1]] += 1
+
+        # clipHistogram
+        print("...Clipping the Histogram...")
+        if clipLimit > 0:
+            for i in range(subRows):
+                for j in range(subCols):
+                    nrExcess = 0
+                    for nr in range(bins):
+                        excess = hist[i, j, nr] - clipLimit
+                        if excess > 0:
+                            nrExcess += excess
+
+                    binIncr = nrExcess / bins
+                    upper = clipLimit - binIncr
+                    for nr in range(bins):
+                        if hist[i, j, nr] > clipLimit:
+                            hist[i, j, nr] = clipLimit
+                        else:
+                            if hist[i, j, nr] > upper:
+                                nrExcess += upper - hist[i, j, nr]
+                                hist[i, j, nr] = clipLimit
+                            else:
+                                nrExcess -= binIncr
+                                hist[i, j, nr] += binIncr
+
+                    if nrExcess > 0:
+                        stepSz = max(1, np.floor(1 + nrExcess / bins))
+                        for nr in range(bins):
+                            nrExcess -= stepSz
+                            hist[i, j, nr] += stepSz
+                            if nrExcess < 1:
+                                break
+
+        # mapHistogram
+        print("...Mapping the Histogram...")
+        map_ = np.zeros((subRows, subCols, bins))
+        # print(map_.shape)
+        scale = (maxVal - minVal) / float(noPixels)
+        for i in range(subRows):
+            for j in range(subCols):
+                sum_ = 0
+                for nr in range(bins):
+                    sum_ += hist[i, j, nr]
+                    map_[i, j, nr] = np.floor(min(minVal + sum_ * scale, maxVal))
+
+        # BACK TO CLAHE
+        # INTERPOLATION
+        print("...interpolation...")
+        xI = 0
+        for i in range(subRows + 1):
+            if i == 0:
+                subX = int(maskSize / 2)
+                xU = 0
+                xB = 0
+            elif i == subRows:
+                subX = int(maskSize / 2)
+                xU = subRows - 1
+                xB = subRows - 1
+            else:
+                subX = maskSize
+                xU = i - 1
+                xB = i
+
+            yI = 0
+            for j in range(subCols + 1):
+                if j == 0:
+                    subY = int(maskSize / 2)
+                    yL = 0
+                    yR = 0
+                elif j == subCols:
+                    subY = int(maskSize / 2)
+                    yL = subCols - 1
+                    yR = subCols - 1
+                else:
+                    subY = maskSize
+                    yL = j - 1
+                    yR = j
+                UL = map_[xU, yL, :]
+                UR = map_[xU, yR, :]
+                BL = map_[xB, yL, :]
+                BR = map_[xB, yR, :]
+                # print("CLAHE vals...")
+                subBin = bins[xI:xI + subX, yI:yI + subY]
+                # print("clahe subBin shape: ",subBin.shape)
+                subImage = HistogramFilter.interpolate(subBin, UL, UR, BL, BR, subX, subY)
+                claheImage[xI:xI + subX, yI:yI + subY] = subImage
+                yI += subY
+            xI += subX
+
+        if padX == 0 and padY != 0:
+            return claheImage[:, :-padY]
+        elif padX != 0 and padY == 0:
+            return claheImage[:-padX, :]
+        elif padX != 0 and padY != 0:
+            return claheImage[:-padX, :-padY]
+        else:
+            return claheImage
