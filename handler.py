@@ -18,8 +18,6 @@ logging.basicConfig()
 
 FOETUS_PATH_ORIGINAL = ".\\images\\foetus.png"
 NZJERS_PATH_ORIGINAL = ".\\images\\NZjers1.png"
-FOETUS_PATH_FILTERED = ".\\images\\foetus-filtered.png"
-NZJERS_PATH_FILTERED = ".\\images\\NZjers1-filtered.png"
 
 def getImageAsArray(path, convertToGrey=True):
     """
@@ -58,17 +56,28 @@ def plotFigs(images):
         else:
             raise Exception("Make sure you pass in either a single image as np ndarray or list of images as np ndarray.")
 
-    for img in images:
-        # Convert array to geyscale pillow image object
-        img_PIL = Image.fromarray(img, 'L')
-        display(img_PIL)
+    # set up side-by-side image display
+    fig = plt.figure()
+    fig.set_figheight(15)
+    fig.set_figwidth(15)
+
+    ax1 = fig.add_subplot(1,2,1)
+    ax1.title.set_text('original')
+    plt.imshow(images[0], cmap='gray')
+
+    # display the new image
+    ax2 = fig.add_subplot(1,2,2)
+    ax2.title.set_text('filtered')
+    plt.imshow(images[1], cmap='gray')
+
+    plt.show(block=True)
 
 def saveAll(img, filtr, saveFilter=True):
     """
     Function to save all figures relevant to report. Currently filtered image and plot of kernel.
     :return:
     """
-    assert isinstance(filtr, filters.Filter)
+    assert isinstance(filtr, filters.SpatialFilter)
 
     currentDir = Path().absolute()
     root = str(currentDir) + '\\..\outputs\{}\maskSize_{}\\'.format(filtr.name, filtr.maskSize)
@@ -100,3 +109,4 @@ def saveAll(img, filtr, saveFilter=True):
         print("Saved filter object attributes to... \n{}\n\n".format(root + 'filter.txt'))
     else:
         pass
+

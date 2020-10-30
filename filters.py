@@ -7,10 +7,13 @@ Digital Image Processing 2020, Assignment 1/1, 20%
 from abc import ABC, abstractmethod
 import numpy as np
 import matplotlib.pyplot as plt
-from math import ceil
+from math import ceil, floor
 import statistics
+from scipy import fftpack
+from matplotlib.colors import LogNorm
 
-class Filter(ABC):
+class SpatialFilter(ABC):
+    # TODO: implement standard mask shapes of square or cross and implement kernel creation based on this for each filter
     def __init__(self, maskSize, kernel, name, linearity):
         self.assertTypes(maskSize, kernel)
         self.name = name
@@ -80,7 +83,82 @@ class Filter(ABC):
 
         return output
 
-class Median(Filter):
+class FourierFilter:
+    def fft2D_scipy(self, img, plot=False):
+        """
+        Function transforms image into Fourier domain
+        :param plot: bool to configure plotting of fourier spectum. default=False
+        :param img: image to be transformed
+        :return: image in fourier domain/ fourier spectrum of image
+        """
+        imgFFT = fftpack.fft2(img)
+        if plot: self.plotFourierSpectrum(imgFFT)
+        return imgFFT
+
+    @staticmethod
+    def dft(x): # not in use
+        """
+        Function computes the discrete fourier transform of a 1D array
+        :param x: input array, 1 dimensional
+        :return: np.array of fourier transformed input array
+        """
+        x = np.asarray(x, dtype=float)
+        N = x.shape[0]
+        n = np.arange(N)
+        k = n.reshape((N, 1))
+        M = np.exp((-2j * np.pi * k * n) / N)
+        return np.dot(M, x)
+
+    def fft(self, x):
+        """
+        Function recursively implements 1D Cooley-Turkey fast fourier transform
+        :param x: input array, 1 dimensional
+        :return: np.array of fourier transformed input array
+        """
+        x = np.array(x, dtype=float)
+        N = x.shape[0]
+
+        if N % 2 > 0:
+            raise ValueError("size of x must be a power of 2")
+        elif N <= 32:
+            return self.dft(x)
+        else:
+            X_even = self.fft(x[::2])
+            X_odd = self.fft(x[1::2])
+            factor = np.exp((-2j * np.pi * np.arange(N)) /N)
+            return np.concatenate([X_even + factor[:N / 2] * X_odd,
+                                   X_even + factor[N / 2:] * X_odd ])
+
+
+    def fft2D(self, x):
+        """
+        Function recursively implements 1D Cooley-Turkey fast fourier transform
+        :param x: input array, 1 dimensional
+        :return: np.array of fourier transformed input array
+        """
+        x = np.array(x, dtype=float)
+        xRot = x.T
+
+        self.fft(x)
+
+    @staticmethod
+    def inverseFFT_scipy(img):
+        return fftpack.ifft2(img).real
+
+    @staticmethod
+    def plotFourierSpectrum(imgFFT):
+        """
+        Function displays fourier spectrum of image that has been fourier transformed
+        :param imgFFT: fourier spectrum of img
+        :return: None
+        """
+        plt.figure()
+        plt.imshow(np.abs(imgFFT), norm=LogNorm(vmin=5))
+        plt.colorbar()
+        plt.title('Fourier Spectrum')
+
+
+class Median(SpatialFilter):
     def __init__(self, maskSize):
 
         kernel = np.zeros((maskSize,maskSize))
@@ -92,7 +170,7 @@ class Median(Filter):
     def computePixel(self, sub):
         return statistics.median(sub.flatten())
 
-class Mean(Filter):
+class Mean(SpatialFilter):
     """
     Effectively a low pass filter. Alternative kernel implemented in class LowPass(Filter).
     """
@@ -108,7 +186,7 @@ class Mean(Filter):
         # element-wise multiplication of the kernel and image pixel under consideration
         return (self.kernel * sub).sum()
 
-class Gaussian(Filter):
+class Gaussian(SpatialFilter):
     def __init__(self, sig):
         # Calculate mask size from sigma value. Ensures filter approaches zero at edges (always round up)
         maskSize = ceil((6 * sig) + 1)
@@ -124,7 +202,7 @@ class Gaussian(Filter):
 
         kernel = np.exp(-0.5 * (np.square(xx) + np.square(yy)) / np.square(sig))
 
-        super().__init__(maskSize, kernel, name='gaussian', linearity='non-linear')
+        super().__init__(maskSize, kernel, name='gaussian', linearity='linear')
 
     def computePixel(self, sub):
         """
@@ -135,7 +213,10 @@ class Gaussian(Filter):
         """
         return (self.kernel * sub).sum()/ self.kernel.sum()
 
-class HighPass(Filter):
+class HighPass(SpatialFilter):
+    """
+    High pass filter to have sharpening effect on image.
+    """
     def __init__(self, maskSize):
 
         # TODO: Make ratio of intensity reduction vs. increase configurable for both high and low pass
@@ -153,7 +234,7 @@ class HighPass(Filter):
 
         return (self.kernel * sub).sum()
 
-class LowPass(Filter):
+class LowPass(SpatialFilter):
     def __init__(self, maskSize):
 
         kernel = np.zeros((maskSize, maskSize))
@@ -166,3 +247,58 @@ class LowPass(Filter):
 
     def computePixel(self, sub):
         return (self.kernel * sub).sum()/ self.kernel.sum()
+
+class FFT_TruncateCoefficients(FourierFilter):
+    def __init__(self, keep=0.1):
+        self.keep = keep
+
+    def compute(self, img, plot=False):
+        # Get fourier transform of image
+        imgFFT = self.fft2D_scipy(img, plot=plot)
+
+        # Call ff a copy of original transform
+        imgFFT2 = imgFFT.copy()
+
+        # Get shape of image: rows and columns
+        row, col = imgFFT2.shape
+
+        # Set all rows and cols to zero not within the keep fraction
+        imgFFT2[ceil(row*self.keep):floor(row*(1-self.keep)), :] = 0
+        imgFFT2[:, ceil(col*self.keep):floor(col*(1-self.keep))] = 0
+
+        if plot: self.plotFourierSpectrum(imgFFT2)
+
+        return self.inverseFFT_scipy(imgFFT2)
+
+class HistogramFilter:
+    @staticmethod
+    def getHistogram(img):
+        # Create zeros array with as many items as bins to collect for
+        histogram = np.zeros(256)
+
+        # Loop through image and add pixel intensities to histogram
+        for pixel in img.flatten():
+            histogram[pixel] += 1
+
+        cumSum = HistogramFilter.cumSum(histogram)
+        cumSumNormalised = HistogramFilter.cumSumNormalise(cumSum)
+
+        return histogram, cumSumNormalised
+
+    @staticmethod
+    def cumSum(histogram):
+        return np.cumsum(histogram.flatten())
+
+    @staticmethod
+    def cumSumNormalise(cumSum):
+        # normalize the cumsum to range 0-255
+        csNormalised = 255 * (cumSum - cumSum.min()) / (cumSum.max() - cumSum.min())
+
+        # cast it to uint8
+        return csNormalised.astype('uint8')
+
+    @staticmethod
+    def histEqualise(img, cs):
+        imgNew = cs[img.flatten()]
+
+        return np.reshape(imgNew, img.shape)
