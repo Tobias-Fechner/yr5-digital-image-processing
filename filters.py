@@ -28,14 +28,14 @@ def padImage(img, maskSize):
     assert isinstance(pad, int)
 
     # Add padding of zeros to the input image
-    imgPadded = np.zeros((img.shape[0] + 2 * pad, img.shape[1] + 2 * pad))
+    imgPadded = np.zeros((img.shape[0] + 2 * pad, img.shape[1] + 2 * pad)).astype('uint8')
 
     # Insert image pixel values into padded array
     imgPadded[pad:-pad, pad:-pad] = img
 
     print("Padding of {} pixels created.".format(pad))
 
-    return imgPadded.astype('uint8')
+    return imgPadded
 
 def scale(x, ceiling=255):
     """
@@ -197,6 +197,13 @@ class FourierFilter:
 
 class HistogramFilter(ABC):
     def __init__(self, maskSize, name):
+        assert isinstance(maskSize, int)        # Mask size must be integer
+        try:
+            assert maskSize % 2 == 1            # Mask size must be odd
+        except AssertionError:
+            maskSize += 1
+            pass
+
         self.maskSize = maskSize
         self.name = name
 
@@ -223,7 +230,7 @@ class HistogramFilter(ABC):
 
         csScaled = self.getCSScaled(histogram)
 
-        return histogram, csScaled
+        return histogram.astype('uint8'), csScaled
 
     def filter(self, img, plotHistograms=True):
         imgFiltered, histogram, cs = self.compute(img)
@@ -234,7 +241,7 @@ class HistogramFilter(ABC):
         else:
             pass
 
-        return imgFiltered, histogram, cs, histogramNew, csNew # TODO: Delete last 4 returns after dubegging complete
+        return imgFiltered
 
     @staticmethod
     def getCSScaled(histogram):
@@ -436,7 +443,7 @@ class Equalise(HistogramFilter):
 
         return np.reshape(imgNew, img.shape), histogram, cs
 
-class AdaptiveEqualise(HistogramFilter):
+class AHE(HistogramFilter):
     def __init__(self, maskSize=32):
         super().__init__(maskSize, name='adaptive-histogram-equalise')
 
@@ -476,6 +483,75 @@ class AdaptiveEqualise(HistogramFilter):
                 # Update pixel under consideration with equalised pixel intensity
                 middle = int((self.maskSize - 1) / 2)
                 imgFiltered[row, col] = subNew[middle, middle]
+
+        # Returns histogram and cumulative sum of original image for debugging purposes and to comply with
+        # return pattern of filter function in parent class
+        return imgFiltered, histogramOriginal, csOriginal
+
+class SWAHE(HistogramFilter):
+    def __init__(self, maskSize=32):
+        super().__init__(maskSize, name='sliding-window-adaptive-histogram-equalise')
+
+    def updateHistogramAndSub(self, histogram, sub, nextCol):
+        for pixelSub, pixelAdd in zip(sub[:, 0], nextCol):
+            histogram[pixelSub] -= 1
+            histogram[pixelAdd] += 1
+
+        sub = np.delete(sub, 0, axis=1)
+
+        return histogram, np.append(sub, nextCol.reshape((self.maskSize, 1)), axis=1)
+
+    def compute(self, img, padding=True):
+        """
+        Function implements same filter as AdaptiveEqualise but with sliding window computation method for faster
+        computation.
+        :param img: numpy array of pixel intensities for original image
+        :param padding: boolean specifying if padding is added to image (default:True)
+        :return: returns filtered image with adaptive histogram equalised pixel intensities
+        """
+        # Get histogram and cumulative sum of filtered image
+        histogramOriginal, csOriginal = self.getHistogramWithCS(img)
+
+        if padding:
+            imgPadded = padImage(img, self.maskSize)
+        else:
+            imgPadded = img
+            print("No padding added.")
+
+        # Create output array of zeros with same shape and type as img array
+        imgFiltered = np.zeros_like(img)
+
+        # Loop over every pixel of padded image
+        for row in tqdm(range(img.shape[0])):
+            # Create sub matrix of mask size surrounding pixel under consideration
+            sub = np.array(imgPadded[row: row+self.maskSize, 0: 0+self.maskSize])
+
+            # Generate histogram and cumulative sum of image sub array
+            histogram, cs = self.getHistogramWithCS(sub)
+
+            # Use cumulative sum to equalise the pixel intensities
+            subEqualised = np.reshape(cs[sub.flatten()], sub.shape)
+
+            # Update pixel under consideration with equalised pixel intensity
+            middle = int((self.maskSize - 1) / 2)
+            imgFiltered[row, 0] = subEqualised[middle, middle]
+
+            for col in range(1, img.shape[1]):
+                # Get next column of sub array in image
+                nextCol = imgPadded[row: row+self.maskSize, col+self.maskSize]
+
+                # Create sub matrix of mask size surrounding pixel under consideration
+                histogram, sub = self.updateHistogramAndSub(histogram, sub, nextCol)
+
+                # Get cumulative sum for updated histogram
+                cs = self.getCSScaled(histogram)
+
+                # Use histogram and cumulative sum to equalise the pixel intensities
+                subEqualised = np.reshape(cs[sub.flatten()], sub.shape)
+
+                # Update pixel under consideration with equalised pixel intensity
+                middle = int((self.maskSize - 1) / 2)
+                imgFiltered[row, col] = subEqualised[middle, middle]
 
         # Returns histogram and cumulative sum of original image for debugging purposes and to comply with
         # return pattern of filter function in parent class
