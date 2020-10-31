@@ -11,27 +11,31 @@ from math import ceil, floor
 import statistics
 from scipy import fftpack
 from matplotlib.colors import LogNorm
+from tqdm import tqdm
 
 
-def padImage(img, padRow, padCol):
-    # TODO: add pad size calculation to be within this function, then include padImage within if padding statements
+def padImage(img, maskSize):
     """
     Function pads image in two dimensions. Pad size is dependant on mask shape and therefore both pads are
     currently always equal since we only use square mask sizes. Added pixels have intensity zero, 0.
+    :param maskSize: used to calculate number of pixels to be added on  image
     :param img: img to be padded
-    :param padRow: number of pixels to be added on each side of the image (horizontal axis)
-    :param padCol: number of pixels to be added on the top and bottom of image (vertical axis)
     :return:
     """
-    assert isinstance(padCol, int) and isinstance(padRow, int)
+    # Create padding for edges
+    pad = ceil((maskSize - 1) / 2)
+
+    assert isinstance(pad, int)
 
     # Add padding of zeros to the input image
-    imgPadded = np.zeros((img.shape[0] + 2 * padRow, img.shape[1] + 2 * padCol))
+    imgPadded = np.zeros((img.shape[0] + 2 * pad, img.shape[1] + 2 * pad))
 
     # Insert image pixel values into padded array
-    imgPadded[padRow:-padRow, padCol:-padCol] = img
+    imgPadded[pad:-pad, pad:-pad] = img
 
-    return imgPadded
+    print("Padding of {} pixels created.".format(pad))
+
+    return imgPadded.astype('uint8')
 
 def scale(x, ceiling=255):
     """
@@ -41,7 +45,18 @@ def scale(x, ceiling=255):
     :return: scaled array
     """
     assert isinstance(x, np.ndarray)
-    assert x.max() != x.min() # otherwise divide by zero error
+    try:
+        # Check min, max to avoid div 0 error
+        assert x.max() != x.min()
+    except AssertionError:
+        # If all values the same, return array as it is (un-scaled)
+        if np.all(x == x.flatten()[0]):
+            return x
+        # Otherwise, raise exception as any range of values should be scaled
+        else:
+            raise Exception("Can't scale as min and max are the same and will cause div(0) error but not "
+                            "all values are the same in array. Printing array... ", x)
+
     return ceiling * (x - x.min()) / (x.max() - x.min())
 
 class SpatialFilter(ABC):
@@ -87,11 +102,9 @@ class SpatialFilter(ABC):
         :return: numpy array of filtered image (image convoluted with kernel)
         """
         if padding:
-            # Create padding for edges
-            pad = ceil((self.maskSize - 1) / 2)
-            print("Padding of {} pixels created.".format(pad))
+            imgPadded = padImage(img, self.maskSize)
         else:
-            pad = 0
+            imgPadded = img
             print("No padding added.")
 
         # Flip the kernel up/down and left/right
@@ -99,8 +112,6 @@ class SpatialFilter(ABC):
 
         # Create output array of zeros with same shape and type as img array
         output = np.zeros_like(img)
-
-        imgPadded = padImage(img, pad, pad)
 
         # Loop over every pixel of padded image
         for col in range(img.shape[1]):
@@ -412,6 +423,9 @@ class TruncateCoefficients(FourierFilter):
         return self.inverseFFT_scipy(imgFFT2)
 
 class Equalise(HistogramFilter):
+    """
+    This filter normalises the brightness whilst increasing the contrast of the image at the same time.
+    """
     def __init__(self):
         super().__init__(None, name='histogram-equalise')
 
@@ -439,20 +453,16 @@ class AdaptiveEqualise(HistogramFilter):
         histogramOriginal, csOriginal = self.getHistogramWithCS(img)
 
         if padding:
-            # Create padding for edges
-            pad = ceil((self.maskSize - 1) / 2)
-            print("Padding of {} pixels created.".format(pad))
+            imgPadded = padImage(img, self.maskSize)
         else:
-            pad = 0
+            imgPadded = img
             print("No padding added.")
 
         # Create output array of zeros with same shape and type as img array
         imgFiltered = np.zeros_like(img)
 
-        imgPadded = padImage(img, pad, pad)
-
         # Loop over every pixel of padded image
-        for col in range(img.shape[1]):
+        for col in tqdm(range(img.shape[1])):
             for row in range(img.shape[0]):
                 # Create sub matrix of mask size surrounding pixel under consideration
                 sub = imgPadded[row: row+self.maskSize, col: col+self.maskSize]
@@ -461,7 +471,7 @@ class AdaptiveEqualise(HistogramFilter):
                 _, cs = self.getHistogramWithCS(sub)
 
                 # Use histogram and cumulative sum to equalise the pixel intensities
-                subNew = np.reshape(cs[img.flatten()], img.shape)
+                subNew = np.reshape(cs[sub.flatten()], sub.shape)
 
                 # Update pixel under consideration with equalised pixel intensity
                 middle = int((self.maskSize - 1) / 2)
