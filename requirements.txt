@@ -16,6 +16,7 @@ ipython-genutils==0.2.0
 ipywidgets==7.5.1
 jedi==0.17.2
 Jinja2==2.11.2
+joblib==0.17.0
 jsonschema==3.2.0
 jupyter==1.0.0
 jupyter-client==6.1.7
@@ -49,11 +50,13 @@ pywinpty==0.5.7
 pyzmq==19.0.2
 qtconsole==4.7.7
 QtPy==1.9.0
+scikit-learn==0.23.2
 scipy==1.5.2
 Send2Trash==1.5.0
 six==1.15.0
 terminado==0.9.1
 testpath==0.4.4
+threadpoolctl==2.1.0
 tornado==6.0.4
 traitlets==5.0.5
 wcwidth==0.2.5
