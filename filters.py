@@ -12,7 +12,9 @@ import statistics
 from scipy import fftpack
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
+import logging
 
+logging.basicConfig()
 
 def padImage(img, maskSize):
     """
@@ -204,6 +206,7 @@ class HistogramFilter(ABC):
             maskSize += 1
             pass
 
+        # Mask size will always be odd
         self.maskSize = maskSize
         self.name = name
 
@@ -474,7 +477,7 @@ class AHE(HistogramFilter):
                 # Create sub matrix of mask size surrounding pixel under consideration
                 sub = imgPadded[row: row+self.maskSize, col: col+self.maskSize]
 
-                # Generate histogram and cumulative sum of image sub array
+                # Generate histogram and cumulative sum of sub matrix
                 _, cs = self.getHistogramWithCS(sub)
 
                 # Use histogram and cumulative sum to equalise the pixel intensities
@@ -521,12 +524,12 @@ class SWAHE(HistogramFilter):
         # Create output array of zeros with same shape and type as img array
         imgFiltered = np.zeros_like(img)
 
-        # Loop over every pixel of padded image
+        # Loop over every pixel of *original* image
         for row in tqdm(range(img.shape[0])):
             # Create sub matrix of mask size surrounding pixel under consideration
             sub = np.array(imgPadded[row: row+self.maskSize, 0: 0+self.maskSize])
 
-            # Generate histogram and cumulative sum of image sub array
+            # Generate histogram and cumulative sum of sub matrix
             histogram, cs = self.getHistogramWithCS(sub)
 
             # Use cumulative sum to equalise the pixel intensities
@@ -536,9 +539,15 @@ class SWAHE(HistogramFilter):
             middle = int((self.maskSize - 1) / 2)
             imgFiltered[row, 0] = subEqualised[middle, middle]
 
-            for col in range(1, img.shape[1]):
-                # Get next column of sub array in image
-                nextCol = imgPadded[row: row+self.maskSize, col+self.maskSize]
+            for col in range(img.shape[1]):
+                try:
+                    # Get next column of sub array in image
+                    nextCol = imgPadded[row: row+self.maskSize, col+self.maskSize]
+                except IndexError:
+                    if col + self.maskSize == imgPadded.shape[1] + 1:
+                        continue
+                    else:
+                        raise IndexError("Index error triggered unexpectedly when at column {}, row {}.".format(col, row))
 
                 # Create sub matrix of mask size surrounding pixel under consideration
                 histogram, sub = self.updateHistogramAndSub(histogram, sub, nextCol)
