@@ -116,7 +116,7 @@ class SpatialFilter(ABC):
         output = np.zeros_like(img)
 
         # Loop over every pixel of padded image
-        for col in range(img.shape[1]):
+        for col in tqdm(range(img.shape[1])):
             for row in range(img.shape[0]):
                 # Create sub matrix of mask size surrounding pixel under consideration
                 sub = imgPadded[row: row+self.maskSize, col: col+self.maskSize]
@@ -323,6 +323,7 @@ class HistogramFilter(ABC):
 class Median(SpatialFilter):
     def __init__(self, maskSize):
 
+        # arbitrary kernel weights assigned
         kernel = np.zeros((maskSize,maskSize))
         middle = int((maskSize-1)/2)
         kernel[middle, middle] = 1
@@ -331,6 +332,59 @@ class Median(SpatialFilter):
 
     def computePixel(self, sub):
         return statistics.median(sub.flatten())
+
+#TODO: Review, as I got mixed up between truncated mean and trimmed median
+class TrimmedMedian(SpatialFilter):
+    def __init__(self, maskSize):
+
+        # arbitrary kernel weights assigned
+        kernel = np.zeros((maskSize,maskSize))
+        middle = int((maskSize-1)/2)
+        kernel[middle, middle] = 1
+
+        super().__init__(maskSize, kernel, name='trimmed-median', linearity='non-linear')
+
+    def computePixel(self, sub):
+        trimmedSub = list(sub.flatten())[1:-1]
+        return statistics.median(trimmedSub)
+
+class AdaptiveWeightedMedian(SpatialFilter):
+    def __init__(self, maskSize):
+
+        # Create kernel with weights representing distance from centre using equivalent of pythagoras
+        ax = np.linspace(-(maskSize - 1) / 2., (maskSize - 1) / 2., maskSize)
+        xx, yy = np.meshgrid(ax, ax)
+        kernel = np.sqrt(np.square(xx) + np.square(yy))
+
+        super().__init__(maskSize, kernel, name='adaptive-weighted-median', linearity='non-linear')
+
+    def computePixel(self, sub):
+        # set max weight, used for centre of kernel, and constant
+        centralWeight = 100
+        k = 10 #TODO: make configurable
+
+        # calculate the standard deviation and mean of sub matrix
+        std = np.std(sub)
+        mean = np.mean(sub)
+
+        if mean == 0:
+            mean = 1
+        else:
+            pass
+
+        # create matrix of weights based on sub matrix, using formula for adaptive weighted median filter
+        # truncate negative weights to zero to ensure low pass characteristics
+        weights = centralWeight - np.divide(k*std*self.kernel, mean)
+
+        # use list comprehension to pair each element from sub matrix with respective weighting in tuple
+        # and sort based on sub matrix elements/ pixel intensities
+        b = sorted((elementSub, elementKernel) for elementSub, elementKernel in zip(sub.flatten(), weights.flatten()))
+
+        # multiply weights with sub matrix pixel intensity values
+        combinedElements = [elementSub*elementKernel for elementSub, elementKernel in b]
+
+        # return median of list of weighted sub matrix values
+        return statistics.median(combinedElements)
 
 class Mean(SpatialFilter):
     """
@@ -359,6 +413,7 @@ class Gaussian(SpatialFilter):
         else:
             pass
 
+        # Create kernel with weights representing gaussian distribution with input standard deviation
         ax = np.linspace(-(maskSize - 1) / 2., (maskSize - 1) / 2., maskSize)
         xx, yy = np.meshgrid(ax, ax)
 
@@ -375,7 +430,7 @@ class Gaussian(SpatialFilter):
         """
         return (self.kernel * sub).sum()/ self.kernel.sum()
 
-class HighPass(SpatialFilter):
+class Sharpening(SpatialFilter):
     """
     High pass filter to have sharpening effect on image.
     """
