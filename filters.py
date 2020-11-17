@@ -333,21 +333,6 @@ class Median(SpatialFilter):
     def computePixel(self, sub):
         return statistics.median(sub.flatten())
 
-#TODO: Review, as I got mixed up between truncated mean and trimmed median
-class TrimmedMedian(SpatialFilter):
-    def __init__(self, maskSize):
-
-        # arbitrary kernel weights assigned
-        kernel = np.zeros((maskSize,maskSize))
-        middle = int((maskSize-1)/2)
-        kernel[middle, middle] = 1
-
-        super().__init__(maskSize, kernel, name='trimmed-median', linearity='non-linear')
-
-    def computePixel(self, sub):
-        trimmedSub = list(sub.flatten())[1:-1]
-        return statistics.median(trimmedSub)
-
 class AdaptiveWeightedMedian(SpatialFilter):
     def __init__(self, maskSize, constant, centralWeight):
 
@@ -394,19 +379,35 @@ class AdaptiveWeightedMedian(SpatialFilter):
 
 class Mean(SpatialFilter):
     """
-    Effectively a low pass filter. Alternative kernel implemented in class LowPass(Filter).
+    Effectively a blurring filter. Alternative kernel implemented in class LowPass(Filter).
     """
     def __init__(self, maskSize):
         kernel = np.ones((maskSize,maskSize))/(maskSize**2)
+        try:
+            assert kernel.sum() == 1
+        except AssertionError:
+            raise Exception("Sum of kernel weights for mean filter should equal 1. They equal {}!".format(self.kernel.sum()))
         super().__init__(maskSize, kernel, name='mean', linearity='linear')
 
     def computePixel(self, sub):
-        try:
-            assert self.kernel.sum() == 1
-        except AssertionError:
-            raise Exception("Sum of kernel weights for mean filter should equal 1. They equal {}!".format(self.kernel.sum()))
         # element-wise multiplication of the kernel and image pixel under consideration
         return (self.kernel * sub).sum()
+
+class TrimmedMean(SpatialFilter):
+    """
+    Can be used to discard a number of outliers from the higher and lower ends of the retrieved sub matrix of pixel values.
+    """
+    def __init__(self, maskSize, trimStart=1, trimEnd=1):
+        kernel = np.ones((maskSize,maskSize))
+
+        # Assign trim parameters as attributes specific to this class for use in computation
+        self.trimStart = trimStart
+        self.trimEnd = trimEnd
+        super().__init__(maskSize, kernel, name='trimmed-mean', linearity='linear')
+
+    def computePixel(self, sub):
+        trimmedSub = list(sub.flatten())
+        return np.mean(trimmedSub[self.trimStart:-self.trimStart])
 
 class Gaussian(SpatialFilter):
     def __init__(self, sig):
@@ -497,7 +498,8 @@ class Equalise(HistogramFilter):
     This filter normalises the brightness whilst increasing the contrast of the image at the same time.
     """
     def __init__(self):
-        super().__init__(None, name='histogram-equalise')
+        kernel = np.ones((1,1))
+        super().__init__(kernel, name='histogram-equalise')
 
     def compute(self, img):
         histogram, cs = self.getHistogramWithCS(img)
