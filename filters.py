@@ -35,7 +35,7 @@ def padImage(img, maskSize):
     # Insert image pixel values into padded array
     imgPadded[pad:-pad, pad:-pad] = img
 
-    print("Padding of {} pixels created.".format(pad))
+    logging.info("Padding of {} pixels created.".format(pad))
 
     return imgPadded
 
@@ -93,7 +93,7 @@ class SpatialFilter(ABC):
         assert isinstance(kernel, np.ndarray)   # kernel should be n-dimensional numpy array
 
     @abstractmethod
-    def computePixel(self, sub):
+    def compute(self, sub):
         pass
 
     def convolve(self, img, padding=True):
@@ -120,7 +120,7 @@ class SpatialFilter(ABC):
             for row in range(img.shape[0]):
                 # Create sub matrix of mask size surrounding pixel under consideration
                 sub = imgPadded[row: row+self.maskSize, col: col+self.maskSize]
-                output[row, col] = self.computePixel(sub)
+                output[row, col] = self.compute(sub)
 
         return output
 
@@ -291,31 +291,6 @@ class HistogramFilter(ABC):
         plt.legend()
         plt.show()
 
-    @staticmethod
-    def interpolate(subBin, LU, RU, LB, RB, subX, subY):
-        """
-
-        :param subBin:
-        :param LU:
-        :param RU:
-        :param LB:
-        :param RB:
-        :param subX:
-        :param subY:
-        :return:
-        """
-        subImage = np.zeros(subBin.shape)
-        num = subX * subY
-        for i in range(subX):
-            inverseI = subX - i
-            for j in range(subY):
-                inverseJ = subY - j
-                val = subBin[i, j].astype(int)
-                subImage[i, j] = np.floor(
-                    (inverseI * (inverseJ * LU[val] + j * RU[val]) + i * (inverseJ * LB[val] + j * RB[val])) / float(
-                        num))
-        return subImage
-
     @abstractmethod
     def compute(self, img):
         pass
@@ -323,22 +298,22 @@ class HistogramFilter(ABC):
 class Median(SpatialFilter):
     def __init__(self, maskSize):
 
-        # arbitrary kernel weights assigned
-        kernel = np.zeros((maskSize,maskSize))
-        middle = int((maskSize-1)/2)
-        kernel[middle, middle] = 1
+        # arbitrary kernel weights assigned since kernel is not used
+        super().__init__(maskSize, np.zeros((maskSize,maskSize)), name='median', linearity='non-linear')
 
-        super().__init__(maskSize, kernel, name='median', linearity='non-linear')
-
-    def computePixel(self, sub):
+    def compute(self, sub):
         return statistics.median(sub.flatten())
 
 class AdaptiveWeightedMedian(SpatialFilter):
     def __init__(self, maskSize, constant, centralWeight):
 
-        # Create kernel with weights representing distance from centre using equivalent of pythagoras
+        # Create 1D array of linearly distributed values with given start/ stop values and a step size of maskSize
         ax = np.linspace(-(maskSize - 1) / 2., (maskSize - 1) / 2., maskSize)
+
+        # Create coordinate grid using 1D linspace array
         xx, yy = np.meshgrid(ax, ax)
+
+        # Finally, create kernel of weight corresponding to distance from centre using pythagoras theorem
         kernel = np.sqrt(np.square(xx) + np.square(yy))
 
         # set max weight, used for centre of kernel, and constant used in formula
@@ -347,8 +322,8 @@ class AdaptiveWeightedMedian(SpatialFilter):
 
         super().__init__(maskSize, kernel, name='adaptive-weighted-median', linearity='non-linear')
 
-    def computePixel(self, sub):
-        # calculate the standard deviation and mean of sub matrix
+    def compute(self, sub):
+        # Calculate the standard deviation and mean of sub matrix
         std = np.std(sub)
         mean = np.mean(sub)
 
@@ -386,10 +361,13 @@ class Mean(SpatialFilter):
         try:
             assert kernel.sum() == 1
         except AssertionError:
-            raise Exception("Sum of kernel weights for mean filter should equal 1. They equal {}!".format(self.kernel.sum()))
+            if abs(1 - kernel.sum()) < 0.01:
+                pass
+            else:
+                raise Exception("Sum of kernel weights for mean filter should equal 1. They equal {}!".format(kernel.sum()))
         super().__init__(maskSize, kernel, name='mean', linearity='linear')
 
-    def computePixel(self, sub):
+    def compute(self, sub):
         # element-wise multiplication of the kernel and image pixel under consideration
         return (self.kernel * sub).sum()
 
@@ -398,14 +376,21 @@ class TrimmedMean(SpatialFilter):
     Can be used to discard a number of outliers from the higher and lower ends of the retrieved sub matrix of pixel values.
     """
     def __init__(self, maskSize, trimStart=1, trimEnd=1):
-        kernel = np.ones((maskSize,maskSize))
+        kernel = np.ones((maskSize,maskSize))/(maskSize**2)
+        try:
+            assert kernel.sum() == 1
+        except AssertionError:
+            if abs(1 - kernel.sum()) < 0.01:
+                pass
+            else:
+                raise Exception("Sum of kernel weights for mean filter should equal 1. They equal {}!".format(kernel.sum()))
 
         # Assign trim parameters as attributes specific to this class for use in computation
         self.trimStart = trimStart
         self.trimEnd = trimEnd
         super().__init__(maskSize, kernel, name='trimmed-mean', linearity='linear')
 
-    def computePixel(self, sub):
+    def compute(self, sub):
         trimmedSub = list(sub.flatten())
         return np.mean(trimmedSub[self.trimStart:-self.trimStart])
 
@@ -421,14 +406,18 @@ class Gaussian(SpatialFilter):
             pass
 
         # Create kernel with weights representing gaussian distribution with input standard deviation
+        # Create 1D array of linearly distributed values with given start/ stop values and a step size of maskSize
         ax = np.linspace(-(maskSize - 1) / 2., (maskSize - 1) / 2., maskSize)
+
+        # Create coordinate grid using 1D linspace array
         xx, yy = np.meshgrid(ax, ax)
 
+        # Finally, create kernel using gaussian distribution formula
         kernel = np.exp(-0.5 * (np.square(xx) + np.square(yy)) / np.square(sig))
 
         super().__init__(maskSize, kernel, name='gaussian', linearity='linear')
 
-    def computePixel(self, sub):
+    def compute(self, sub):
         """
         Element-wise multiplication of the kernel and image pixel under consideration,
         accounting for normalisation to mitigate DC distortion effects.
@@ -443,19 +432,25 @@ class Sharpening(SpatialFilter):
     """
     def __init__(self, maskSize):
 
-        # TODO: Make ratio of intensity reduction vs. increase configurable for both high and low pass
-        kernel = np.full((maskSize, maskSize), -1/(maskSize**2))
+        # Create kernel of negative one over the square of mask size
+        kernel = np.full((maskSize, maskSize), -1)
+
+        # Set centre pixel to positive fraction such that kernel weights sum to zero
         middle = int((maskSize-1)/2)
-        kernel[middle, middle] = 1 - 1/(maskSize**2)
+        kernel[middle, middle] = maskSize**2 - 1
+
+        # Divide all elements by the number of elements in the window
+        kernel = np.divide(kernel, maskSize**2)
+
         super().__init__(maskSize, kernel, name='high-pass', linearity='linear')
 
-    def computePixel(self, sub):
+    def compute(self, sub):
         try:
-            assert -0.01 < self.kernel.sum() < 0.01
+            assert -0.01 < np.sum(self.kernel) < 0.01
         except AssertionError:
-            raise Exception("Sum of high pass filter weights should be effectively zero.")
+            raise Exception("Sum of high pass filter weights should be effectively 0.")
 
-        return (self.kernel * sub).sum()
+        return np.sum(np.multiply(self.kernel, sub))
 
 class LowPass(SpatialFilter):
     def __init__(self, maskSize, middleWeight=1/2, otherWeights=1/8):
@@ -468,7 +463,7 @@ class LowPass(SpatialFilter):
 
         super().__init__(maskSize, kernel, name='low-pass', linearity='non-linear')
 
-    def computePixel(self, sub):
+    def compute(self, sub):
         return (self.kernel * sub).sum()/ self.kernel.sum()
 
 class TruncateCoefficients(FourierFilter):
@@ -498,8 +493,7 @@ class Equalise(HistogramFilter):
     This filter normalises the brightness whilst increasing the contrast of the image at the same time.
     """
     def __init__(self):
-        kernel = np.ones((1,1))
-        super().__init__(kernel, name='histogram-equalise')
+        super().__init__(3, name='histogram-equalise')
 
     def compute(self, img):
         histogram, cs = self.getHistogramWithCS(img)
@@ -534,8 +528,8 @@ class AHE(HistogramFilter):
         imgFiltered = np.zeros_like(img)
 
         # Loop over every pixel of padded image
-        for col in tqdm(range(img.shape[1])):
-            for row in range(img.shape[0]):
+        for row in tqdm(range(img.shape[0])):
+            for col in range(img.shape[1]):
                 # Create sub matrix of mask size surrounding pixel under consideration
                 sub = imgPadded[row: row+self.maskSize, col: col+self.maskSize]
 
@@ -558,12 +552,19 @@ class SWAHE(HistogramFilter):
         super().__init__(maskSize, name='sliding-window-adaptive-histogram-equalise')
 
     def updateHistogramAndSub(self, histogram, sub, nextCol):
+
+        # Pair pixels in the corresponding rows of the trailing and next columns
         for pixelSub, pixelAdd in zip(sub[:, 0], nextCol):
+            # Subtract 1 from the histogram at the occurrence of each pixel intensity in the trailing column
             histogram[pixelSub] -= 1
+
+            # Add one for each pixel intensity occurrence in the next kernel window column
             histogram[pixelAdd] += 1
 
+        # Drop the trailing column of the sub matrix
         sub = np.delete(sub, 0, axis=1)
 
+        # Return the histogram and sub matrix with next column appended
         return histogram, np.append(sub, nextCol.reshape((self.maskSize, 1)), axis=1)
 
     def compute(self, img, padding=True):
@@ -606,10 +607,13 @@ class SWAHE(HistogramFilter):
                     # Get next column of sub array in image
                     nextCol = imgPadded[row: row+self.maskSize, col+self.maskSize]
                 except IndexError:
-                    if col + self.maskSize == imgPadded.shape[1] + 1:
+                    if col + self.maskSize <= imgPadded.shape[1] + 1:
                         continue
                     else:
-                        raise IndexError("Index error triggered unexpectedly when at column {}, row {}.".format(col, row))
+                        raise IndexError("Index error triggered unexpectedly when at column {}, row {}.\n"
+                                         "mask size = {}\n"
+                                         "col+self.maskSize = {}\n"
+                                         "imgPadded.shape[1] = {}\n".format(col, row, self.maskSize, col+self.maskSize, imgPadded.shape[1]))
 
                 # Create sub matrix of mask size surrounding pixel under consideration
                 histogram, sub = self.updateHistogramAndSub(histogram, sub, nextCol)
