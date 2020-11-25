@@ -6,11 +6,13 @@ Module has functionality to load test images, apply various filters, and save th
 ‼ Cool stuff: abstract base class used to specify common functionality and attributes between all spatial filters, whilst being able to uniquely implement the pixel update methodologies for each filter. Likely will implement for Fourier filters but I don't know how yet.
 
 ### Filters Implemented: Spatial Filters
-* Median
+* Trimmed mean
 * Mean
 * Gaussian
 * High pass
 * Low pass
+* Median
+* Adaptive weighted median
 
 ### Filters Implemented: Fourier Filters
 * Truncate coefficients
