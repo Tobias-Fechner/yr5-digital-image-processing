@@ -5,7 +5,7 @@ edge-detector modules to complete assignment.
 Digital Image Processing 2020, Assignment 1/1, 20%
 """
 
-# Import packages and modules used in code
+# Import packages used in code
 import numpy as np
 from PIL import Image
 import logging
