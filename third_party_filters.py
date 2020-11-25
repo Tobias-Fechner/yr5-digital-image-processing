@@ -1,5 +1,7 @@
 import cv2.cv2 as cv
 import handler
+import numpy as np
+import matplotlib as plt
 
 def equalise(path):
     """
@@ -22,3 +24,8 @@ def CLAHE(path):
     clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     cl1 = clahe.apply(img)
     handler.plotFigs([img, cl1])
+
+def edgeDetect(img, minVal=100, maxVal=200):
+
+    return cv.Canny(img, minVal, maxVal)
+
